@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa de Jugadores - La Plata</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+
+  #header {
+    background: #1a3a5c;
+    color: white;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 16px; font-weight: 600; }
+  #header span { font-size: 12px; opacity: 0.8; }
+
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  #sidebar {
+    width: 280px;
+    background: white;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  #sidebar-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+  }
+  #sidebar-header h2 { font-size: 13px; color: #333; margin-bottom: 6px; }
+
+  #filter-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+  .filter-btn {
+    padding: 3px 8px; font-size: 11px; border-radius: 12px;
+    border: 1px solid #ccc; background: white; cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn.active { background: #1a3a5c; color: white; border-color: #1a3a5c; }
+  .filter-btn.active.descartado { background: #c0392b; border-color: #c0392b; }
+  .filter-btn.active.seguimiento { background: #e67e22; border-color: #e67e22; }
+  .filter-btn.active.interesante { background: #27ae60; border-color: #27ae60; }
+
+  #player-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+  }
+
+  .player-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    border-left: 3px solid #27ae60;
+  }
+  .player-card:hover { border-color: #1a3a5c; }
+  .player-card.descartado { border-left-color: #c0392b; opacity: 0.7; }
+  .player-card.seguimiento { border-left-color: #e67e22; }
+  .player-card.interesante { border-left-color: #27ae60; }
+
+  .player-card .name { font-size: 13px; font-weight: 600; color: #222; }
+  .player-card .club { font-size: 11px; color: #666; margin-top: 1px; }
+  .player-card .meta { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+  .badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 8px;
+    background: #e8f4fd; color: #1a6a9a;
+  }
+  .badge.descartado { background: #fdecea; color: #c0392b; }
+  .badge.seguimiento { background: #fef5e7; color: #e67e22; }
+  .badge.interesante { background: #eafaf1; color: #27ae60; }
+
+  #map-container { flex: 1; position: relative; }
+  #map { height: 100%; width: 100%; }
+
+  #add-btn {
+    position: absolute;
+    bottom: 20px; right: 10px;
+    z-index: 1000;
+    background: #1a3a5c;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 44px; height: 44px;
+    font-size: 22px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  #add-btn:hover { background: #0f2640; }
+  #add-btn.active { background: #c0392b; }
+
+  #hint-bar {
+    position: absolute;
+    top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(26,58,92,0.92);
+    color: white;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    display: none;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  /* Modal overlay */
+  #modal-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+  }
+  #modal-overlay.open { display: flex; }
+
+  #modal {
+    background: white;
+    border-radius: 10px;
+    padding: 18px 20px;
+    width: 320px;
+    max-width: 95%;
+    max-height: 90%;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  }
+  #modal h3 { font-size: 15px; color: #1a3a5c; margin-bottom: 14px; }
+
+  .form-group { margin-bottom: 10px; }
+  .form-group label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 7px 9px; border: 1px solid #ddd;
+    border-radius: 5px; font-size: 13px; color: #333;
+    font-family: Arial, sans-serif;
+  }
+  .form-group textarea { height: 64px; resize: vertical; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+    outline: none; border-color: #1a3a5c;
+  }
+
+  .form-row { display: flex; gap: 8px; }
+  .form-row .form-group { flex: 1; }
+
+  .modal-btns { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+  .btn {
+    padding: 7px 14px; border-radius: 5px; font-size: 13px;
+    cursor: pointer; border: none; font-weight: 500;
+  }
+  .btn-primary { background: #1a3a5c; color: white; }
+  .btn-primary:hover { background: #0f2640; }
+  .btn-danger { background: #c0392b; color: white; }
+  .btn-danger:hover { background: #a93226; }
+  .btn-secondary { background: #f0f0f0; color: #444; }
+  .btn-secondary:hover { background: #e0e0e0; }
+
+  .stats-bar {
+    display: flex; gap: 8px; padding: 6px 12px;
+    border-top: 1px solid #eee; background: #f8f9fa; flex-shrink: 0;
+  }
+  .stat { text-align: center; flex: 1; }
+  .stat .n { font-size: 16px; font-weight: 700; color: #1a3a5c; }
+  .stat .l { font-size: 10px; color: #888; }
+  .stat.d .n { color: #c0392b; }
+  .stat.s .n { color: #e67e22; }
+
+  #no-players { text-align: center; padding: 20px; color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⚽ Mapa de Jugadores — La Plata</h1>
+  <span id="header-count">0 jugadores</span>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h2>Jugadores encontrados</h2>
+      <div id="filter-btns">
+        <button class="filter-btn active" data-filter="todos">Todos</button>
+        <button class="filter-btn interesante" data-filter="interesante">Interesantes</button>
+        <button class="filter-btn seguimiento" data-filter="seguimiento">Seguimiento</button>
+        <button class="filter-btn descartado" data-filter="descartado">Descartados</button>
+      </div>
+    </div>
+    <div id="player-list">
+      <div id="no-players">Aún no hay jugadores.<br>Usá el botón + para agregar.</div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat"><div class="n" id="stat-total">0</div><div class="l">Total</div></div>
+      <div class="stat"><div class="n" id="stat-int" style="color:#27ae60">0</div><div class="l">Interes.</div></div>
+      <div class="stat s"><div class="n" id="stat-seg">0</div><div class="l">Seguim.</div></div>
+      <div class="stat d"><div class="n" id="stat-desc">0</div><div class="l">Descart.</div></div>
+    </div>
+  </div>
+
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="hint-bar">Hacé clic en el mapa para ubicar al jugador</div>
+    <button id="add-btn" title="Agregar jugador">+</button>
+
+    <div id="modal-overlay">
+      <div id="modal">
+        <h3 id="modal-title">Nuevo jugador</h3>
+        <div class="form-group">
+          <label>Nombre completo *</label>
+          <input type="text" id="f-nombre" placeholder="Ej: Juan Pérez">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Edad</label>
+            <input type="number" id="f-edad" placeholder="18" min="8" max="50">
+          </div>
+          <div class="form-group">
+            <label>Posición</label>
+            <select id="f-posicion">
+              <option value="">-</option>
+              <option>Arquero</option>
+              <option>Defensor</option>
+              <option>Lateral</option>
+              <option>Volante</option>
+              <option>Mediapunta</option>
+              <option>Extremo</option>
+              <option>Delantero</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Club / Cancha *</label>
+          <input type="text" id="f-club" placeholder="Ej: Club Estrella, Villa Elvira">
+        </div>
+        <div class="form-group">
+          <label>Estado</label>
+          <select id="f-estado">
+            <option value="interesante">Interesante</option>
+            <option value="seguimiento">En seguimiento</option>
+            <option value="descartado">Descartado</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea id="f-notas" placeholder="Características, contacto, observaciones..."></textarea>
+        </div>
+        <div class="modal-btns">
+          <button class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+          <button class="btn btn-danger" id="btn-delete" style="display:none">Eliminar</button>
+          <button class="btn btn-primary" id="btn-save">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const LA_PLATA = [-34.9215, -57.9545];
+let map, players = [], pendingLatLng = null, editingId = null, activeFilter = 'todos';
+
+const COLORS = { interesante: '#27ae60', seguimiento: '#e67e22', descartado: '#c0392b' };
+const LABELS = { interesante: 'Interesante', seguimiento: 'Seguimiento', descartado: 'Descartado' };
+
+function initMap() {
+  map = L.map('map').setView(LA_PLATA, 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+
+  map.on('click', function(e) {
+    if (document.getElementById('add-btn').classList.contains('active')) {
+      pendingLatLng = e.latlng;
+      stopAddMode();
+      openModal();
+    }
+  });
+}
+
+function makeIcon(estado) {
+  const color = COLORS[estado] || '#1a3a5c';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/>
+    <circle cx="14" cy="14" r="6" fill="white" opacity="0.9"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg, className: '', iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -36]
+  });
+}
+
+function saveToStorage() {
+  try { localStorage.setItem('laplata_jugadores', JSON.stringify(players)); } catch(e) {}
+}
+
+function loadFromStorage() {
+  try {
+    const d = localStorage.getItem('laplata_jugadores');
+    if (d) players = JSON.parse(d);
+  } catch(e) { players = []; }
+}
+
+function addMarker(p) {
+  if (p.marker) { try { map.removeLayer(p.marker); } catch(e){} }
+  const m = L.marker([p.lat, p.lng], { icon: makeIcon(p.estado) }).addTo(map);
+  m.bindPopup(() => {
+    const age = p.edad ? `, ${p.edad} años` : '';
+    const pos = p.posicion ? ` · ${p.posicion}` : '';
+    return `<b style="font-size:13px">${p.nombre}</b><br>
+    <span style="font-size:11px;color:#666">${p.club}${age}${pos}</span><br>
+    <span style="font-size:11px;color:${COLORS[p.estado]};font-weight:600">${LABELS[p.estado]}</span>
+    ${p.notas ? `<br><span style="font-size:11px;color:#555">${p.notas}</span>` : ''}
+    <br><a href="#" onclick="editPlayer('${p.id}');return false;" style="font-size:11px;color:#1a3a5c">✏️ Editar</a>`;
+  });
+  p.marker = m;
+}
+
+function renderList() {
+  const list = document.getElementById('player-list');
+  const noP = document.getElementById('no-players');
+  const filtered = activeFilter === 'todos' ? players : players.filter(p => p.estado === activeFilter);
+
+  document.getElementById('stat-total').textContent = players.length;
+  document.getElementById('stat-int').textContent = players.filter(p=>p.estado==='interesante').length;
+  document.getElementById('stat-seg').textContent = players.filter(p=>p.estado==='seguimiento').length;
+  document.getElementById('stat-desc').textContent = players.filter(p=>p.estado==='descartado').length;
+  document.getElementById('header-count').textContent = `${players.length} jugador${players.length!==1?'es':''}`;
+
+  list.innerHTML = '';
+  if (filtered.length === 0) {
+    noP.style.display = 'block';
+    list.appendChild(noP);
+    return;
+  }
+
+  filtered.forEach(p => {
+    const card = document.createElement('div');
+    card.className = `player-card ${p.estado}`;
+    const age = p.edad ? `${p.edad}a` : '';
+    card.innerHTML = `
+      <div class="name">${p.nombre}</div>
+      <div class="club">${p.club}</div>
+      <div class="meta">
+        ${p.posicion ? `<span class="badge">${p.posicion}</span>` : ''}
+        ${age ? `<span class="badge">${age}</span>` : ''}
+        <span class="badge ${p.estado}">${LABELS[p.estado]}</span>
+      </div>`;
+    card.onclick = () => {
+      if (p.marker) { map.setView([p.lat, p.lng], 16); p.marker.openPopup(); }
+      editPlayer(p.id);
+    };
+    list.appendChild(card);
+  });
+}
+
+function openModal(id) {
+  editingId = id || null;
+  const overlay = document.getElementById('modal-overlay');
+  const title = document.getElementById('modal-title');
+  const delBtn = document.getElementById('btn-delete');
+
+  if (id) {
+    const p = players.find(x => x.id === id);
+    if (!p) return;
+    title.textContent = 'Editar jugador';
+    document.getElementById('f-nombre').value = p.nombre;
+    document.getElementById('f-edad').value = p.edad || '';
+    document.getElementById('f-posicion').value = p.posicion || '';
+    document.getElementById('f-club').value = p.club;
+    document.getElementById('f-estado').value = p.estado;
+    document.getElementById('f-notas').value = p.notas || '';
+    delBtn.style.display = 'inline-block';
+  } else {
+    title.textContent = 'Nuevo jugador';
+    document.getElementById('f-nombre').value = '';
+    document.getElementById('f-edad').value = '';
+    document.getElementById('f-posicion').value = '';
+    document.getElementById('f-club').value = '';
+    document.getElementById('f-estado').value = 'interesante';
+    document.getElementById('f-notas').value = '';
+    delBtn.style.display = 'none';
+  }
+  overlay.classList.add('open');
+  setTimeout(() => document.getElementById('f-nombre').focus(), 100);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  pendingLatLng = null; editingId = null;
+}
+
+function savePlayer() {
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const club = document.getElementById('f-club').value.trim();
+  if (!nombre) { alert('El nombre es obligatorio'); return; }
+  if (!editingId && !pendingLatLng && !club) { alert('Indicá el club'); return; }
+
+  if (editingId) {
+    const p = players.find(x => x.id === editingId);
+    if (p) {
+      p.nombre = nombre;
+      p.edad = document.getElementById('f-edad').value || '';
+      p.posicion = document.getElementById('f-posicion').value || '';
+      p.club = club || p.club;
+      p.estado = document.getElementById('f-estado').value;
+      p.notas = document.getElementById('f-notas').value.trim();
+      addMarker(p);
+    }
+  } else {
+    const lat = pendingLatLng ? pendingLatLng.lat : LA_PLATA[0] + (Math.random()-0.5)*0.05;
+    const lng = pendingLatLng ? pendingLatLng.lng : LA_PLATA[1] + (Math.random()-0.5)*0.05;
+    const p = {
+      id: Date.now().toString(),
+      nombre, club,
+      edad: document.getElementById('f-edad').value || '',
+      posicion: document.getElementById('f-posicion').value || '',
+      estado: document.getElementById('f-estado').value,
+      notas: document.getElementById('f-notas').value.trim(),
+      lat, lng, marker: null
+    };
+    players.push(p);
+    addMarker(p);
+  }
+  saveToStorage();
+  renderList();
+  closeModal();
+}
+
+function deletePlayer() {
+  if (!editingId) return;
+  if (!confirm('¿Eliminar este jugador?')) return;
+  const idx = players.findIndex(p => p.id === editingId);
+  if (idx !== -1) {
+    if (players[idx].marker) map.removeLayer(players[idx].marker);
+    players.splice(idx, 1);
+  }
+  saveToStorage();
+  renderList();
+  closeModal();
+}
+
+function editPlayer(id) { openModal(id); }
+
+function startAddMode() {
+  const btn = document.getElementById('add-btn');
+  btn.classList.add('active');
+  btn.textContent = '✕';
+  btn.title = 'Cancelar';
+  document.getElementById('hint-bar').style.display = 'block';
+  map.getContainer().style.cursor = 'crosshair';
+}
+
+function stopAddMode() {
+  const btn = document.getElementById('add-btn');
+  btn.classList.remove('active');
+  btn.textContent = '+';
+  btn.title = 'Agregar jugador';
+  document.getElementById('hint-bar').style.display = 'none';
+  map.getContainer().style.cursor = '';
+}
+
+document.getElementById('add-btn').onclick = function() {
+  if (this.classList.contains('active')) { stopAddMode(); }
+  else { startAddMode(); }
+};
+
+document.getElementById('btn-save').onclick = savePlayer;
+document.getElementById('btn-cancel').onclick = closeModal;
+document.getElementById('btn-delete').onclick = deletePlayer;
+
+document.getElementById('modal-overlay').onclick = function(e) {
+  if (e.target === this) closeModal();
+};
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.onclick = function() {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    activeFilter = this.dataset.filter;
+    renderList();
+  };
+});
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+initMap();
+loadFromStorage();
+players.forEach(p => { p.marker = null; addMarker(p); });
+renderList();
+</script>
+</body>
+</html>
